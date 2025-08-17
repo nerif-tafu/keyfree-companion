@@ -10,6 +10,8 @@ A powerful keyboard automation tool with web API interface, built with Python fo
 - **Multiple Key Combinations**: Support for single, duo, trio, and quartet key combinations
 - **String Typing**: Type text strings with natural timing
 - **Key Down/Up Control**: Individual key press and release control
+- **System Tray Support**: Minimize to system tray with right-click menu
+- **Startup Integration**: Option to start automatically with Windows
 
 ## Installation
 

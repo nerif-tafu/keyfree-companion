@@ -12,6 +12,11 @@ import time
 import queue
 import pyperclip
 import requests
+import pystray
+import os
+import sys
+import winreg
+from PIL import Image, ImageDraw
 from keyboard_simulator import KeyboardSimulator
 
 class KeyFreeCompanionGUI:
@@ -19,6 +24,9 @@ class KeyFreeCompanionGUI:
         self.root = root
         self.root.title("KeyFree Companion")
         self.root.geometry("800x600")
+        
+        # Set window icon
+        self.setup_window_icon()
         
         # Initialize keyboard simulator for recording
         self.keyboard_simulator = KeyboardSimulator()
@@ -32,9 +40,42 @@ class KeyFreeCompanionGUI:
         # Message queue for thread communication
         self.message_queue = queue.Queue()
         
+        # System tray
+        self.tray_icon = None
+        self.is_minimized_to_tray = False
+        
+        # Check startup status first
+        self.startup_enabled = self.is_startup_enabled()
+        
         self.setup_ui()
+        self.setup_system_tray()
+        self.setup_window_protocols()
         self.start_server_monitor()
         self.process_messages()
+    
+    def setup_window_icon(self):
+        """Set the window icon to bunny.png"""
+        try:
+            import os
+            import sys
+            
+            # Handle both development and packaged executable paths
+            if getattr(sys, 'frozen', False):
+                # Running as executable
+                base_path = sys._MEIPASS
+            else:
+                # Running as script
+                base_path = os.path.dirname(__file__)
+            
+            icon_path = os.path.join(base_path, 'bunny.png')
+            if os.path.exists(icon_path):
+                # Load and set the icon
+                icon_image = tk.PhotoImage(file=icon_path)
+                self.root.iconphoto(True, icon_image)
+                # Keep a reference to prevent garbage collection
+                self.window_icon = icon_image
+        except Exception as e:
+            print(f"Failed to set window icon: {e}")
     
     def setup_ui(self):
         # Main frame
@@ -45,22 +86,35 @@ class KeyFreeCompanionGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        main_frame.rowconfigure(3, weight=1)
         
         # Title
         title_label = ttk.Label(main_frame, text="KeyFree Companion", font=("Arial", 16, "bold"))
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
+        
+        # Startup checkbox
+        startup_frame = ttk.Frame(main_frame)
+        startup_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        self.startup_var = tk.BooleanVar(value=self.startup_enabled)
+        startup_checkbox = ttk.Checkbutton(
+            startup_frame, 
+            text="Start with Windows", 
+            variable=self.startup_var,
+            command=self.on_startup_toggle
+        )
+        startup_checkbox.pack(side=tk.LEFT)
         
         # Server status
         self.status_frame = ttk.LabelFrame(main_frame, text="Server Status", padding="5")
-        self.status_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        self.status_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
         
         self.status_label = ttk.Label(self.status_frame, text="Checking server status...")
         self.status_label.grid(row=0, column=0, sticky=tk.W)
         
         # Function selection
         function_frame = ttk.LabelFrame(main_frame, text="Function Selection", padding="10")
-        function_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        function_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         
         # Function dropdown
         ttk.Label(function_frame, text="Function:").grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
@@ -100,7 +154,7 @@ class KeyFreeCompanionGUI:
         
         # Right side - cURL output and logs
         right_frame = ttk.Frame(main_frame)
-        right_frame.grid(row=2, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        right_frame.grid(row=3, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
         right_frame.columnconfigure(0, weight=1)
         right_frame.rowconfigure(1, weight=1)
         
@@ -523,6 +577,238 @@ class KeyFreeCompanionGUI:
             else:
                 self.message_queue.put({'type': 'status', 'content': '❌ Server not running'})
                 self.message_queue.put({'type': 'log', 'content': 'Server connection lost'})
+    
+    def create_tray_icon(self):
+        """Create a simple icon for the system tray"""
+        try:
+            # Try to load the custom bunny.png icon
+            import os
+            import sys
+            
+            # Handle both development and packaged executable paths
+            if getattr(sys, 'frozen', False):
+                # Running as executable
+                base_path = sys._MEIPASS
+            else:
+                # Running as script
+                base_path = os.path.dirname(__file__)
+            
+            icon_path = os.path.join(base_path, 'bunny.png')
+            if os.path.exists(icon_path):
+                image = Image.open(icon_path)
+                # Resize to 64x64 for system tray
+                image = image.resize((64, 64), Image.Resampling.LANCZOS)
+                return image
+        except Exception as e:
+            print(f"Failed to load custom icon: {e}")
+        
+        # Fallback to simple icon if custom icon fails
+        image = Image.new('RGB', (64, 64), color='#2E86AB')
+        draw = ImageDraw.Draw(image)
+        
+        # Draw a simple keyboard icon (rectangle with lines)
+        draw.rectangle([12, 12, 52, 52], outline='white', width=2)
+        draw.rectangle([16, 16, 48, 48], outline='white', width=1)
+        
+        # Draw some key-like rectangles
+        for i in range(3):
+            for j in range(3):
+                x = 20 + i * 8
+                y = 20 + j * 8
+                draw.rectangle([x, y, x+4, y+4], fill='white')
+        
+        return image
+    
+    def setup_system_tray(self):
+        """Setup the system tray icon and menu"""
+        try:
+            # Stop any existing tray icon first
+            if self.tray_icon:
+                try:
+                    self.tray_icon.stop()
+                except:
+                    pass
+                self.tray_icon = None
+            
+            icon_image = self.create_tray_icon()
+            
+            # Create tray menu
+            menu = pystray.Menu(
+                pystray.MenuItem("Show Window", self.show_window),
+                pystray.MenuItem("Server Status", self.show_server_status),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Start with Windows", self.toggle_startup, checked=lambda item: self.startup_enabled),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Exit", self.quit_application)
+            )
+            
+            # Create tray icon
+            self.tray_icon = pystray.Icon(
+                "KeyFree Companion",
+                icon_image,
+                "KeyFree Companion",
+                menu
+            )
+            
+        except Exception as e:
+            print(f"Failed to setup system tray: {e}")
+    
+    def setup_window_protocols(self):
+        """Setup window protocols for minimize to tray"""
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.bind("<Unmap>", self.on_minimize)
+    
+    def on_minimize(self, event):
+        """Handle window minimize event"""
+        if self.root.state() == 'iconic':
+            self.minimize_to_tray()
+    
+    def minimize_to_tray(self):
+        """Minimize the window to system tray"""
+        try:
+            if not self.is_minimized_to_tray:
+                self.root.withdraw()  # Hide the window
+                self.is_minimized_to_tray = True
+                
+                # Small delay to ensure previous tray icon is cleaned up
+                time.sleep(0.1)
+                
+                # Always create a fresh tray icon to avoid handle issues
+                self.setup_system_tray()
+                
+                # Start the tray icon in a separate thread
+                def run_tray():
+                    try:
+                        if self.tray_icon:
+                            self.tray_icon.run()
+                    except Exception as e:
+                        print(f"Tray icon error: {e}")
+                
+                tray_thread = threading.Thread(target=run_tray, daemon=True)
+                tray_thread.start()
+                
+                self.log_message("Application minimized to system tray")
+        except Exception as e:
+            print(f"Failed to minimize to tray: {e}")
+    
+    def show_window(self, icon=None, item=None):
+        """Show the main window"""
+        try:
+            self.root.deiconify()  # Show the window
+            self.root.state('normal')  # Restore window
+            self.root.lift()  # Bring to front
+            self.root.focus_force()  # Focus the window
+            self.is_minimized_to_tray = False
+            
+            # Stop and clear the tray icon completely
+            if self.tray_icon:
+                try:
+                    self.tray_icon.stop()
+                except:
+                    pass
+                self.tray_icon = None
+            
+            self.log_message("Application restored from system tray")
+        except Exception as e:
+            print(f"Failed to show window: {e}")
+    
+    def show_server_status(self, icon=None, item=None):
+        """Show server status in tray menu"""
+        status = "✅ Running" if self.server_running else "❌ Not Running"
+        messagebox.showinfo("Server Status", f"KeyFree Companion Server: {status}\nURL: {self.server_url}")
+    
+    def on_closing(self):
+        """Handle window closing"""
+        if self.is_minimized_to_tray:
+            # If minimized to tray, just hide the window
+            self.minimize_to_tray()
+        else:
+            # If not minimized, ask user what to do
+            result = messagebox.askyesnocancel(
+                "KeyFree Companion",
+                "Do you want to minimize to system tray?\n\nYes = Minimize to tray\nNo = Exit application\nCancel = Cancel"
+            )
+            
+            if result is True:  # Yes - minimize to tray
+                self.minimize_to_tray()
+            elif result is False:  # No - exit application
+                self.quit_application()
+            # Cancel - do nothing
+    
+    def quit_application(self, icon=None, item=None):
+        """Quit the application"""
+        try:
+            if self.tray_icon:
+                self.tray_icon.stop()
+            self.root.quit()
+        except Exception as e:
+            print(f"Failed to quit application: {e}")
+    
+    def is_startup_enabled(self):
+        """Check if the application is set to start with Windows"""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                               r"Software\Microsoft\Windows\CurrentVersion\Run", 
+                               0, winreg.KEY_READ)
+            try:
+                winreg.QueryValueEx(key, "KeyFree Companion")
+                winreg.CloseKey(key)
+                return True
+            except FileNotFoundError:
+                winreg.CloseKey(key)
+                return False
+        except Exception:
+            return False
+    
+    def set_startup_enabled(self, enabled):
+        """Enable or disable startup with Windows"""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                               r"Software\Microsoft\Windows\CurrentVersion\Run", 
+                               0, winreg.KEY_SET_VALUE | winreg.KEY_READ)
+            
+            if enabled:
+                # Get the path to the executable
+                if getattr(sys, 'frozen', False):
+                    # Running as executable
+                    exe_path = sys.executable
+                else:
+                    # Running as script - use python executable
+                    exe_path = f'"{sys.executable}" "{os.path.abspath("main.py")}" start'
+                
+                winreg.SetValueEx(key, "KeyFree Companion", 0, winreg.REG_SZ, exe_path)
+                self.log_message("✅ Startup enabled - Application will start with Windows")
+            else:
+                try:
+                    winreg.DeleteValue(key, "KeyFree Companion")
+                    self.log_message("❌ Startup disabled - Application will not start with Windows")
+                except FileNotFoundError:
+                    pass  # Value doesn't exist, which is fine
+            
+            winreg.CloseKey(key)
+            self.startup_enabled = enabled
+            return True
+        except Exception as e:
+            self.log_message(f"❌ Failed to {'enable' if enabled else 'disable'} startup: {e}")
+            return False
+    
+    def on_startup_toggle(self):
+        """Handle startup checkbox toggle"""
+        enabled = self.startup_var.get()
+        if self.set_startup_enabled(enabled):
+            # Update the checkbox state
+            self.startup_var.set(enabled)
+        else:
+            # Revert the checkbox if setting failed
+            self.startup_var.set(not enabled)
+    
+    def toggle_startup(self, icon=None, item=None):
+        """Toggle startup from tray menu"""
+        enabled = not self.startup_enabled
+        if self.set_startup_enabled(enabled):
+            self.startup_var.set(enabled)
+        else:
+            self.startup_var.set(not enabled)
 
 def main():
     root = tk.Tk()
