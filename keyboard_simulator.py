@@ -49,6 +49,7 @@ class KeyboardSimulator:
             'end': Key.end,
             'pageup': Key.page_up, 'page_up': Key.page_up,
             'pagedown': Key.page_down, 'page_down': Key.page_down,
+            'numlock': Key.num_lock, 'num_lock': Key.num_lock,
             
             # Arrow keys
             'up': Key.up, 'up_arrow': Key.up, 'uparrow': Key.up,
@@ -57,12 +58,12 @@ class KeyboardSimulator:
             'right': Key.right, 'right_arrow': Key.right, 'rightarrow': Key.right,
             
             # Numpad keys
-            'keypad0': KeyCode.from_vk(82), 'keypad1': KeyCode.from_vk(79), 'keypad2': KeyCode.from_vk(80),
-            'keypad3': KeyCode.from_vk(81), 'keypad4': KeyCode.from_vk(75), 'keypad5': KeyCode.from_vk(76),
-            'keypad6': KeyCode.from_vk(77), 'keypad7': KeyCode.from_vk(71), 'keypad8': KeyCode.from_vk(72),
-            'keypad9': KeyCode.from_vk(73), 'keypadperiod': KeyCode.from_vk(83), 'keypadenter': Key.enter,
-            'keypadplus': KeyCode.from_vk(78), 'keypadminus': KeyCode.from_vk(74), 
-            'keypadmultiply': KeyCode.from_vk(55), 'keypaddivide': KeyCode.from_vk(181),
+            'keypad0': KeyCode.from_vk(96), 'keypad1': KeyCode.from_vk(97), 'keypad2': KeyCode.from_vk(98),
+            'keypad3': KeyCode.from_vk(99), 'keypad4': KeyCode.from_vk(100), 'keypad5': KeyCode.from_vk(101),
+            'keypad6': KeyCode.from_vk(102), 'keypad7': KeyCode.from_vk(103), 'keypad8': KeyCode.from_vk(104),
+            'keypad9': KeyCode.from_vk(105), 'keypadperiod': KeyCode.from_vk(110), 'keypadenter': Key.enter,
+            'keypadplus': KeyCode.from_vk(107), 'keypadminus': KeyCode.from_vk(109), 
+            'keypadmultiply': KeyCode.from_vk(106), 'keypaddivide': KeyCode.from_vk(111),
             
             # Punctuation and symbols
             'comma': ',', ',': ',',
@@ -110,11 +111,29 @@ class KeyboardSimulator:
             raise ValueError(f"Invalid key: {key}")
         
         try:
+            # For numpad keys, ensure NumLock is on
+            if key.startswith('keypad') and key != 'keypadenter':
+                self._ensure_numlock_on()
+            
             self.controller.press(normalized_key)
             time.sleep(0.05)  # Hold for 50ms
             self.controller.release(normalized_key)
         except Exception as e:
             raise Exception(f"Failed to send key {normalized_key}: {str(e)}")
+    
+    def _ensure_numlock_on(self):
+        """Ensure NumLock is turned on for numpad operations"""
+        try:
+            # Check if NumLock is off by trying to send a numpad key
+            # If it sends a different character, NumLock is off
+            # We'll temporarily turn it on
+            self.controller.press(Key.num_lock)
+            time.sleep(0.01)
+            self.controller.release(Key.num_lock)
+            time.sleep(0.01)
+        except:
+            # If num_lock key is not available, we'll try alternative approach
+            pass
     
     def duo(self, key1, key2):
         """Simulate a two-key combination"""
