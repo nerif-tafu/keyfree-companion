@@ -12,6 +12,7 @@ A powerful keyboard automation tool with web API interface, built with Python fo
 - **Key Down/Up Control**: Individual key press and release control
 - **System Tray Support**: Minimize to system tray with right-click menu
 - **Startup Integration**: Option to start automatically with Windows
+- **Tray-Only Startup**: Option to start minimized to system tray only
 
 ## Installation
 
@@ -38,6 +39,49 @@ A powerful keyboard automation tool with web API interface, built with Python fo
    python main.py server
    ```
 
+## Building the Executable
+
+### Prerequisites for Building
+
+- PyInstaller: `pip install pyinstaller`
+- All project dependencies installed
+
+### Build Process
+
+1. **Install PyInstaller (if not already installed):**
+   ```bash
+   pip install pyinstaller
+   ```
+
+2. **Build the executable:**
+   ```bash
+   pyinstaller keyfree_companion.spec
+   ```
+
+3. **Find your executable:**
+   - The built executable will be in the `dist/` folder
+   - File name: `KeyFreeCompanion.exe`
+   - Size: Approximately 23MB
+
+### Build Configuration
+
+The project includes a pre-configured `keyfree_companion.spec` file that:
+- Creates a single executable file (no console window)
+- Includes the bunny icon (`bunny_new.ico`)
+- Bundles all dependencies
+- Includes version information
+- Optimizes the build for distribution
+
+### Running the Built Executable
+
+- **Normal mode:** Double-click `KeyFreeCompanion.exe` or run from command line
+- **Tray-only mode:** Use command line: `KeyFreeCompanion.exe start --tray-only`
+- **Server only:** Use command line: `KeyFreeCompanion.exe server`
+
+### Distribution
+
+The executable is self-contained and can be distributed to other Windows machines without requiring Python installation.
+
 ## Usage
 
 ### Quick Start (Recommended)
@@ -47,6 +91,14 @@ python main.py start
 ```
 
 This starts both the GUI and server together. The GUI will open automatically and connect to the server.
+
+### Start Minimized to System Tray
+
+```bash
+python main.py start --tray-only
+```
+
+This starts the application but immediately minimizes it to the system tray. Useful for running the server in the background without showing the GUI window.
 
 ### Individual Components
 

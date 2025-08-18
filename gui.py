@@ -47,11 +47,18 @@ class KeyFreeCompanionGUI:
         # Check startup status first
         self.startup_enabled = self.is_startup_enabled()
         
+        # Check tray-only startup status
+        self.tray_only_enabled = self.is_tray_only_enabled()
+        
         self.setup_ui()
         self.setup_system_tray()
         self.setup_window_protocols()
         self.start_server_monitor()
         self.process_messages()
+        
+        # Check if we should start minimized to tray
+        if self.tray_only_enabled or os.environ.get('KEYFREE_TRAY_ONLY') == '1':
+            self.minimize_to_tray()
     
     def setup_window_icon(self):
         """Set the window icon to bunny.png"""
@@ -92,10 +99,11 @@ class KeyFreeCompanionGUI:
         title_label = ttk.Label(main_frame, text="KeyFree Companion", font=("Arial", 16, "bold"))
         title_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
         
-        # Startup checkbox
+        # Startup options frame
         startup_frame = ttk.Frame(main_frame)
         startup_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
         
+        # Startup checkbox
         self.startup_var = tk.BooleanVar(value=self.startup_enabled)
         startup_checkbox = ttk.Checkbutton(
             startup_frame, 
@@ -103,7 +111,17 @@ class KeyFreeCompanionGUI:
             variable=self.startup_var,
             command=self.on_startup_toggle
         )
-        startup_checkbox.pack(side=tk.LEFT)
+        startup_checkbox.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # Tray-only checkbox
+        self.tray_only_var = tk.BooleanVar(value=self.tray_only_enabled)
+        tray_only_checkbox = ttk.Checkbutton(
+            startup_frame, 
+            text="Start in system tray only", 
+            variable=self.tray_only_var,
+            command=self.on_tray_only_toggle
+        )
+        tray_only_checkbox.pack(side=tk.LEFT)
         
         # Server status
         self.status_frame = ttk.LabelFrame(main_frame, text="Server Status", padding="5")
@@ -638,6 +656,7 @@ class KeyFreeCompanionGUI:
                 pystray.MenuItem("Server Status", self.show_server_status),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Start with Windows", self.toggle_startup, checked=lambda item: self.startup_enabled),
+                pystray.MenuItem("Start in system tray only", self.toggle_tray_only, checked=lambda item: self.tray_only_enabled),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Exit", self.quit_application)
             )
@@ -776,6 +795,10 @@ class KeyFreeCompanionGUI:
                     # Running as script - use python executable
                     exe_path = f'"{sys.executable}" "{os.path.abspath("main.py")}" start'
                 
+                # Add tray-only parameter if enabled
+                if self.tray_only_enabled:
+                    exe_path += ' --tray-only'
+                
                 winreg.SetValueEx(key, "KeyFree Companion", 0, winreg.REG_SZ, exe_path)
                 self.log_message("✅ Startup enabled - Application will start with Windows")
             else:
@@ -809,6 +832,67 @@ class KeyFreeCompanionGUI:
             self.startup_var.set(enabled)
         else:
             self.startup_var.set(not enabled)
+    
+    def is_tray_only_enabled(self):
+        """Check if the application is set to start in system tray only"""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                               r"Software\KeyFree Companion", 
+                               0, winreg.KEY_READ)
+            try:
+                value, _ = winreg.QueryValueEx(key, "StartInTrayOnly")
+                winreg.CloseKey(key)
+                return bool(value)
+            except FileNotFoundError:
+                winreg.CloseKey(key)
+                return False
+        except FileNotFoundError:
+            # Registry key doesn't exist yet, which is fine
+            return False
+        except Exception as e:
+            print(f"Error reading tray-only setting: {e}")
+            return False
+    
+    def set_tray_only_enabled(self, enabled):
+        """Enable or disable starting in system tray only"""
+        try:
+            # Try to open the key, create it if it doesn't exist
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                                   r"Software\KeyFree Companion", 
+                                   0, winreg.KEY_SET_VALUE | winreg.KEY_READ)
+            except FileNotFoundError:
+                # Key doesn't exist, create it
+                key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, 
+                                     r"Software\KeyFree Companion")
+            
+            winreg.SetValueEx(key, "StartInTrayOnly", 0, winreg.REG_DWORD, 1 if enabled else 0)
+            winreg.CloseKey(key)
+            
+            self.tray_only_enabled = enabled
+            self.log_message(f"{'✅' if enabled else '❌'} Tray-only startup {'enabled' if enabled else 'disabled'}")
+            return True
+        except Exception as e:
+            self.log_message(f"❌ Failed to {'enable' if enabled else 'disable'} tray-only startup: {e}")
+            return False
+    
+    def on_tray_only_toggle(self):
+        """Handle tray-only checkbox toggle"""
+        enabled = self.tray_only_var.get()
+        if self.set_tray_only_enabled(enabled):
+            # Update the checkbox state
+            self.tray_only_var.set(enabled)
+        else:
+            # Revert the checkbox if setting failed
+            self.tray_only_var.set(not enabled)
+    
+    def toggle_tray_only(self, icon=None, item=None):
+        """Toggle tray-only from tray menu"""
+        enabled = not self.tray_only_enabled
+        if self.set_tray_only_enabled(enabled):
+            self.tray_only_var.set(enabled)
+        else:
+            self.tray_only_var.set(not enabled)
 
 def main():
     root = tk.Tk()

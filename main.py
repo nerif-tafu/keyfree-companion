@@ -52,12 +52,13 @@ def show_help():
     print("KeyFree Companion - Python Version")
     print("=" * 40)
     print("Usage:")
-    print("  python main.py           - Start GUI and server together (default)")
-    print("  python main.py start     - Start GUI and server together")
-    print("  python main.py server    - Start the API server only")
-    print("  python main.py gui       - Start the GUI only")
-    print("  python main.py test      - Test keyboard functionality")
-    print("  python main.py help      - Show this help")
+    print("  python main.py                    - Start GUI and server together (default)")
+    print("  python main.py start              - Start GUI and server together")
+    print("  python main.py start --tray-only  - Start GUI and server, minimized to tray")
+    print("  python main.py server             - Start the API server only")
+    print("  python main.py gui                - Start the GUI only")
+    print("  python main.py test               - Test keyboard functionality")
+    print("  python main.py help               - Show this help")
     print()
     print("API Endpoints:")
     print("  GET  /health             - Health check")
@@ -122,9 +123,53 @@ def start_gui_with_server():
         print(f"❌ Failed to start application: {e}")
         sys.exit(1)
 
+def start_gui_with_server_tray_only():
+    """Start both GUI and server together, but start minimized to tray"""
+    try:
+        import threading
+        from gui import main as gui_main
+        
+        # Check if running as executable (no console)
+        is_executable = getattr(sys, 'frozen', False)
+        
+        if not is_executable:
+            print("🚀 Starting KeyFree Companion with GUI and Server (Tray Only)...")
+            print("📍 Server will be available at: http://localhost:3000")
+            print("🖥️  GUI will start minimized to system tray")
+            print("=" * 60)
+        
+        # Start server in a separate thread
+        def run_server():
+            app.run(host='0.0.0.0', port=3000, debug=False, use_reloader=False)
+        
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        
+        # Give server a moment to start
+        time.sleep(1)
+        
+        # Start GUI with tray-only flag
+        # We'll modify the GUI to start minimized
+        import os
+        os.environ['KEYFREE_TRAY_ONLY'] = '1'
+        gui_main()
+        
+    except ImportError as e:
+        print(f"❌ Failed to start GUI: {e}")
+        print("Make sure all dependencies are installed: pip install -r requirements.txt")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Failed to start application: {e}")
+        sys.exit(1)
+
 def main():
     """Main entry point"""
     try:
+        # Check for tray-only flag
+        tray_only = '--tray-only' in sys.argv
+        if tray_only:
+            sys.argv.remove('--tray-only')
+        
         if len(sys.argv) < 2:
             # Default to 'start' when no command is specified (e.g., double-clicking the exe)
             command = 'start'
@@ -132,7 +177,10 @@ def main():
             command = sys.argv[1].lower()
         
         if command == 'start':
-            start_gui_with_server()
+            if tray_only:
+                start_gui_with_server_tray_only()
+            else:
+                start_gui_with_server()
         elif command == 'server':
             start_server()
         elif command == 'test':
