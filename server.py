@@ -20,7 +20,7 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'message': 'KeyFree Companion API is running',
-        'version': '1.1.0'
+        'version': '1.2.0'
     })
 
 @app.route('/api/keys', methods=['GET'])

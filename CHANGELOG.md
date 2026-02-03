@@ -2,6 +2,24 @@
 
 All notable changes to KeyFree Companion are documented here.
 
+## [1.2.0] - 2026-02-03
+
+### Added
+
+- **Master (system) volume API (Windows)**  
+  - `GET /api/volume/master` – get master volume and mute state.  
+  - `POST /api/volume/master/set` – set master volume (0.0–1.0).  
+  - `POST /api/volume/master/up`, `POST /api/volume/master/down` – increase/decrease by step (optional `amount`, default 0.1).  
+  - `POST /api/volume/master/mute`, `POST /api/volume/master/unmute`, `POST /api/volume/master/toggle-mute`.
+- **GET support for app volume** – `GET /api/volume/get?app=chrome.exe` (or `?pid=...`) in addition to POST.
+- **GitHub Actions** – `.github/workflows/build-release.yml` builds the Windows .exe and creates a GitHub Release with the artifact when you push a tag `v*` (e.g. `v1.2.0`).
+
+### Changed
+
+- **Per-app volume by name** – When you change volume or mute by app name (e.g. `firefox.exe`), it now applies to **all** processes with that name (all windows), not just the first.
+
+---
+
 ## [1.1.0] - 2026-02-03
 
 ### Added

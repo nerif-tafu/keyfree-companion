@@ -1,6 +1,6 @@
 # KeyFree Companion
 
-**Version 1.1.0** · [Changelog](CHANGELOG.md)
+**Version 1.2.0** · [Changelog](CHANGELOG.md)
 
 A keyboard automation tool with web API interface, built with Python for better low-level keyboard control.
 
