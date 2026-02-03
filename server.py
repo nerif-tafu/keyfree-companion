@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from keyboard_simulator import KeyboardSimulator
+import volume_controller
 import logging
 
 # Configure logging
@@ -19,7 +20,7 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'message': 'KeyFree Companion API is running',
-        'version': '1.0.0'
+        'version': '1.1.0'
     })
 
 @app.route('/api/keys', methods=['GET'])
@@ -172,6 +173,201 @@ def type_string():
     except Exception as e:
         logger.error(f"Error in type string: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+# --- Volume (per-app) API ---
+
+@app.route('/api/volume/apps', methods=['GET'])
+def volume_list_apps():
+    """List apps with active audio sessions (name, pid, volume, muted)."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        apps = volume_controller.get_audio_sessions()
+        return jsonify({'apps': apps})
+    except Exception as e:
+        logger.error(f"Error listing volume apps: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/get', methods=['GET', 'POST'])
+def volume_get():
+    """Get current volume level (0.0-1.0) and mute state for an app.
+    GET: ?app=chrome.exe or ?pid=1234
+    POST: body {"app": "chrome.exe"} or {"pid": 1234}
+    Returns: {"volume": 0.8, "muted": false}
+    """
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        if request.method == 'GET':
+            data = request.args
+        else:
+            data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        info = volume_controller.get_volume(identifier)
+        if info is None:
+            return jsonify({'error': f'App not found: {identifier}'}), 404
+        return jsonify(info)
+    except Exception as e:
+        logger.error(f"Error getting volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/set', methods=['POST'])
+def volume_set():
+    """Set volume for an app. Body: {"app": "chrome.exe", "volume": 0.8} or {"pid": 1234, "volume": 0.5}. volume in 0.0-1.0."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'volume' not in data:
+            return jsonify({'error': '"volume" is required (0.0 to 1.0)'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        success, message = volume_controller.set_volume(identifier, data['volume'])
+        if not success:
+            return jsonify({'error': message}), 404
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error setting volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/up', methods=['POST'])
+def volume_up():
+    """Increase volume for an app. Body: {"app": "chrome.exe"} or {"app": "chrome.exe", "amount": 0.1}. amount default 0.1."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        amount = data.get('amount', volume_controller.DEFAULT_VOLUME_STEP)
+        success, message = volume_controller.volume_up(identifier, amount)
+        if not success:
+            return jsonify({'error': message}), 404
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error increasing volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/down', methods=['POST'])
+def volume_down():
+    """Decrease volume for an app. Body: {"app": "chrome.exe"} or {"app": "chrome.exe", "amount": 0.1}."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        amount = data.get('amount', volume_controller.DEFAULT_VOLUME_STEP)
+        success, message = volume_controller.volume_down(identifier, amount)
+        if not success:
+            return jsonify({'error': message}), 404
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error decreasing volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/mute', methods=['POST'])
+def volume_mute():
+    """Mute an app. Body: {"app": "chrome.exe"} or {"pid": 1234}."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        success, message = volume_controller.mute(identifier)
+        if not success:
+            return jsonify({'error': message}), 404
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error muting: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/unmute', methods=['POST'])
+def volume_unmute():
+    """Unmute an app. Body: {"app": "chrome.exe"} or {"pid": 1234}."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        success, message = volume_controller.unmute(identifier)
+        if not success:
+            return jsonify({'error': message}), 404
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error unmuting: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/toggle-mute', methods=['POST'])
+def volume_toggle_mute():
+    """Toggle mute for an app. Body: {"app": "chrome.exe"} or {"pid": 1234}. Returns new muted state."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Per-app volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        identifier = data.get('pid') if 'pid' in data else data.get('app')
+        if identifier is None:
+            return jsonify({'error': 'Either "app" (process name) or "pid" is required'}), 400
+        if 'pid' in data:
+            try:
+                identifier = int(identifier)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'pid must be an integer'}), 400
+        success, message, muted = volume_controller.toggle_mute(identifier)
+        if not success:
+            return jsonify({'error': message}), 404
+        return jsonify({'success': True, 'message': message, 'muted': muted})
+    except Exception as e:
+        logger.error(f"Error toggling mute: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.errorhandler(404)
 def not_found(error):

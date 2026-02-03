@@ -93,7 +93,7 @@ class KeyFreeCompanionGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=1)
         
         # Title
         title_label = ttk.Label(main_frame, text="KeyFree Companion", font=("Arial", 16, "bold"))
@@ -130,9 +130,34 @@ class KeyFreeCompanionGUI:
         self.status_label = ttk.Label(self.status_frame, text="Checking server status...")
         self.status_label.grid(row=0, column=0, sticky=tk.W)
         
+        # Volume control (per-app)
+        self.volume_frame = ttk.LabelFrame(main_frame, text="Volume Control (per app)", padding="5")
+        self.volume_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        self.volume_frame.columnconfigure(1, weight=1)
+        ttk.Label(self.volume_frame, text="App:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5), pady=2)
+        self.volume_app_var = tk.StringVar()
+        self.volume_app_combo = ttk.Combobox(
+            self.volume_frame, textvariable=self.volume_app_var, width=25, state="readonly"
+        )
+        self.volume_app_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+        self.volume_refresh_btn = ttk.Button(self.volume_frame, text="Refresh", command=self.volume_refresh_apps)
+        self.volume_refresh_btn.grid(row=0, column=2, padx=(0, 10), pady=2)
+        ttk.Label(self.volume_frame, text="Step (%):").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=2)
+        self.volume_step_var = tk.StringVar(value="10")
+        volume_step_entry = ttk.Entry(self.volume_frame, textvariable=self.volume_step_var, width=6)
+        volume_step_entry.grid(row=1, column=1, sticky=tk.W, padx=(0, 5), pady=2)
+        vol_btn_frame = ttk.Frame(self.volume_frame)
+        vol_btn_frame.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(5, 2))
+        ttk.Button(vol_btn_frame, text="Vol −", command=self.volume_down_click).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(vol_btn_frame, text="Vol +", command=self.volume_up_click).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(vol_btn_frame, text="Mute", command=self.volume_mute_click).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(vol_btn_frame, text="Unmute", command=self.volume_unmute_click).pack(side=tk.LEFT, padx=(0, 5))
+        self.volume_status_var = tk.StringVar(value="Select an app and use Refresh to list audio apps.")
+        ttk.Label(self.volume_frame, textvariable=self.volume_status_var).grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=2)
+        
         # Function selection
         function_frame = ttk.LabelFrame(main_frame, text="Function Selection", padding="10")
-        function_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        function_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         
         # Function dropdown
         ttk.Label(function_frame, text="Function:").grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
@@ -172,7 +197,7 @@ class KeyFreeCompanionGUI:
         
         # Right side - cURL output and logs
         right_frame = ttk.Frame(main_frame)
-        right_frame.grid(row=3, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        right_frame.grid(row=4, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
         right_frame.columnconfigure(0, weight=1)
         right_frame.rowconfigure(1, weight=1)
         
@@ -533,6 +558,97 @@ class KeyFreeCompanionGUI:
         else:
             messagebox.showwarning("Warning", "No cURL command to copy")
     
+    def volume_refresh_apps(self):
+        """Refresh list of apps with audio from the API."""
+        if not self.server_running:
+            self.volume_status_var.set("Server not running.")
+            return
+        def do_refresh():
+            try:
+                r = requests.get(f"{self.server_url}/api/volume/apps", timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    apps = data.get("apps", [])
+                    names = [a.get("name", "?") for a in apps if a.get("name")]
+                    self.message_queue.put({
+                        "type": "volume_apps",
+                        "apps": names,
+                        "error": None,
+                    })
+                else:
+                    err = r.json().get("error", "Unknown error") if r.text else "Unknown error"
+                    self.message_queue.put({"type": "volume_apps", "apps": [], "error": err})
+            except Exception as e:
+                self.message_queue.put({"type": "volume_apps", "apps": [], "error": str(e)})
+        threading.Thread(target=do_refresh, daemon=True).start()
+    
+    def volume_get_app(self):
+        """Return selected app name from combo, or None."""
+        val = self.volume_app_var.get().strip()
+        return val if val else None
+    
+    def volume_up_click(self):
+        """Increase volume for selected app."""
+        app = self.volume_get_app()
+        if app is None:
+            self.volume_status_var.set("Select an app first.")
+            return
+        try:
+            step = float(self.volume_step_var.get()) / 100.0
+        except (ValueError, TypeError):
+            step = 0.1
+        self._volume_api_call("up", {"app": app, "amount": step})
+    
+    def volume_down_click(self):
+        """Decrease volume for selected app."""
+        app = self.volume_get_app()
+        if app is None:
+            self.volume_status_var.set("Select an app first.")
+            return
+        try:
+            step = float(self.volume_step_var.get()) / 100.0
+        except (ValueError, TypeError):
+            step = 0.1
+        self._volume_api_call("down", {"app": app, "amount": step})
+    
+    def volume_mute_click(self):
+        """Mute selected app."""
+        app = self.volume_get_app()
+        if app is None:
+            self.volume_status_var.set("Select an app first.")
+            return
+        self._volume_api_call("mute", {"app": app})
+    
+    def volume_unmute_click(self):
+        """Unmute selected app."""
+        app = self.volume_get_app()
+        if app is None:
+            self.volume_status_var.set("Select an app first.")
+            return
+        self._volume_api_call("unmute", {"app": app})
+    
+    def _volume_api_call(self, action, data):
+        """POST to /api/volume/<action> and update status/log."""
+        payload = {k: v for k, v in data.items() if v is not None}
+        if not payload:
+            return
+        def do_call():
+            try:
+                url = f"{self.server_url}/api/volume/{action}"
+                r = requests.post(url, json=payload, timeout=5)
+                body = r.json() if r.text else {}
+                if r.status_code == 200:
+                    self.message_queue.put({"type": "log", "content": f"Volume {action}: {body.get('message', 'OK')}"})
+                    self.message_queue.put({"type": "volume_status", "text": body.get("message", "OK")})
+                else:
+                    err = body.get("error", "Unknown error")
+                    self.message_queue.put({"type": "log", "content": f"Volume {action} error: {err}"})
+                    self.message_queue.put({"type": "volume_status", "text": err})
+            except Exception as e:
+                self.message_queue.put({"type": "log", "content": f"Volume {action} error: {str(e)}"})
+                self.message_queue.put({"type": "volume_status", "text": str(e)})
+        threading.Thread(target=do_call, daemon=True).start()
+    
     def log_message(self, message):
         """Add message to log"""
         timestamp = time.strftime("%H:%M:%S")
@@ -571,6 +687,21 @@ class KeyFreeCompanionGUI:
                     self.log_message(message['content'])
                 elif message['type'] == 'status':
                     self.status_label.config(text=message['content'])
+                elif message['type'] == 'trigger_volume_refresh':
+                    self.volume_refresh_apps()
+                elif message['type'] == 'volume_apps':
+                    apps = message.get('apps', [])
+                    err = message.get('error')
+                    self.volume_app_combo['values'] = tuple(apps)  # tuple for ttk combobox
+                    if apps:
+                        self.volume_app_combo.current(0)
+                        self.volume_app_var.set(apps[0])  # ensure displayed value updates
+                    if err:
+                        self.volume_status_var.set(err)
+                    else:
+                        self.volume_status_var.set(f"Found {len(apps)} app(s) with audio.")
+                elif message['type'] == 'volume_status':
+                    self.volume_status_var.set(message.get('text', ''))
         except queue.Empty:
             pass
         
@@ -592,6 +723,7 @@ class KeyFreeCompanionGUI:
             if new_status:
                 self.message_queue.put({'type': 'status', 'content': '✅ Server is running'})
                 self.message_queue.put({'type': 'log', 'content': 'Server connection established'})
+                self.message_queue.put({'type': 'trigger_volume_refresh'})  # auto-fill app dropdown
             else:
                 self.message_queue.put({'type': 'status', 'content': '❌ Server not running'})
                 self.message_queue.put({'type': 'log', 'content': 'Server connection lost'})

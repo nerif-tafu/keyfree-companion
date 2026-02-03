@@ -1,5 +1,7 @@
 # KeyFree Companion
 
+**Version 1.1.0** · [Changelog](CHANGELOG.md)
+
 A keyboard automation tool with web API interface, built with Python for better low-level keyboard control.
 
 Can be used in conjunction with a [Companion plugin](https://github.com/nerif-tafu/companion-module-keyfree-companion) to control hotkeys from a Stream Deck.
@@ -107,6 +109,79 @@ Content-Type: application/json
 }
 ```
 
+### Per-App Volume (Windows only)
+
+Requires `pycaw`. Identify an app by process name (e.g. `chrome.exe`) or `pid`.
+
+**List apps with audio:**
+```http
+GET /api/volume/apps
+```
+
+**Get current volume level and mute state for an app:**
+
+Returns `{"volume": 0.0-1.0, "muted": true|false}`.
+
+```http
+GET /api/volume/get?app=chrome.exe
+```
+or `GET /api/volume/get?pid=12345`
+
+```http
+POST /api/volume/get
+Content-Type: application/json
+
+{ "app": "chrome.exe" }
+```
+or `{ "pid": 12345 }`
+
+**Set volume (0.0–1.0):**
+```http
+POST /api/volume/set
+Content-Type: application/json
+
+{ "app": "chrome.exe", "volume": 0.8 }
+```
+
+**Increase / decrease volume (optional `amount`, default 0.1):**
+```http
+POST /api/volume/up
+Content-Type: application/json
+
+{ "app": "chrome.exe", "amount": 0.1 }
+```
+
+```http
+POST /api/volume/down
+Content-Type: application/json
+
+{ "app": "chrome.exe", "amount": 0.1 }
+```
+
+**Mute / unmute:**
+```http
+POST /api/volume/mute
+Content-Type: application/json
+
+{ "app": "chrome.exe" }
+```
+
+```http
+POST /api/volume/unmute
+Content-Type: application/json
+
+{ "app": "chrome.exe" }
+```
+
+**Toggle mute:**
+```http
+POST /api/volume/toggle-mute
+Content-Type: application/json
+
+{ "app": "chrome.exe" }
+```
+Returns `{ "success": true, "message": "...", "muted": true }`.
+
 ## Examples
 
 ### Windows Screenshot
@@ -128,4 +203,20 @@ curl -X POST http://localhost:3000/api/duo \
 curl -X POST http://localhost:3000/api/string \
   -H 'Content-Type: application/json' \
   -d '{"text": "Hello from KeyFree Companion!"}'
+```
+
+### Per-App Volume (Windows)
+```bash
+# List apps with audio
+curl http://localhost:3000/api/volume/apps
+
+# Increase Chrome volume by 10%
+curl -X POST http://localhost:3000/api/volume/up \
+  -H 'Content-Type: application/json' \
+  -d '{"app": "chrome.exe", "amount": 0.1}'
+
+# Mute an app
+curl -X POST http://localhost:3000/api/volume/mute \
+  -H 'Content-Type: application/json' \
+  -d '{"app": "chrome.exe"}'
 ```
