@@ -369,6 +369,120 @@ def volume_toggle_mute():
         return jsonify({'error': str(e)}), 500
 
 
+# --- Master (system) volume API ---
+
+@app.route('/api/volume/master', methods=['GET'])
+def volume_master_get():
+    """Get system master volume and mute state. Returns {"volume": 0.0-1.0, "muted": bool}."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        info = volume_controller.get_master_volume()
+        if info is None:
+            return jsonify({'error': 'Master volume not available'}), 503
+        return jsonify(info)
+    except Exception as e:
+        logger.error(f"Error getting master volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/master/set', methods=['POST'])
+def volume_master_set():
+    """Set system master volume. Body: {"volume": 0.0-1.0}."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        if 'volume' not in data:
+            return jsonify({'error': '"volume" is required (0.0 to 1.0)'}), 400
+        success, message = volume_controller.set_master_volume(data['volume'])
+        if not success:
+            return jsonify({'error': message}), 500
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error setting master volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/master/up', methods=['POST'])
+def volume_master_up():
+    """Increase system master volume. Body: optional {"amount": 0.1}. Default step 0.1."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        amount = data.get('amount', volume_controller.DEFAULT_VOLUME_STEP)
+        success, message = volume_controller.master_volume_up(amount)
+        if not success:
+            return jsonify({'error': message}), 500
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error increasing master volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/master/down', methods=['POST'])
+def volume_master_down():
+    """Decrease system master volume. Body: optional {"amount": 0.1}. Default step 0.1."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        data = request.get_json() or {}
+        amount = data.get('amount', volume_controller.DEFAULT_VOLUME_STEP)
+        success, message = volume_controller.master_volume_down(amount)
+        if not success:
+            return jsonify({'error': message}), 500
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error decreasing master volume: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/master/mute', methods=['POST'])
+def volume_master_mute():
+    """Mute system master volume."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        success, message = volume_controller.master_mute()
+        if not success:
+            return jsonify({'error': message}), 500
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error muting master: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/master/unmute', methods=['POST'])
+def volume_master_unmute():
+    """Unmute system master volume."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        success, message = volume_controller.master_unmute()
+        if not success:
+            return jsonify({'error': message}), 500
+        return jsonify({'success': True, 'message': message})
+    except Exception as e:
+        logger.error(f"Error unmuting master: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/volume/master/toggle-mute', methods=['POST'])
+def volume_master_toggle_mute():
+    """Toggle system master mute. Returns new muted state."""
+    if not volume_controller.is_available():
+        return jsonify({'error': 'Volume control is not available (Windows + pycaw required)'}), 503
+    try:
+        success, message, muted = volume_controller.toggle_master_mute()
+        if not success:
+            return jsonify({'error': message}), 500
+        return jsonify({'success': True, 'message': message, 'muted': muted})
+    except Exception as e:
+        logger.error(f"Error toggling master mute: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors"""

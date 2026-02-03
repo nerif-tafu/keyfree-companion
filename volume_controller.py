@@ -63,6 +63,135 @@ def is_available():
     return _pycaw_available
 
 
+def _get_master_endpoint():
+    """Get the default playback device's endpoint volume (for master volume). Returns None on failure."""
+    if not _pycaw_available:
+        return None
+    _ensure_com_initialized()
+    try:
+        device = AudioUtilities.GetSpeakers()
+        return device.EndpointVolume
+    except Exception as e:
+        logger.exception("_get_master_endpoint failed: %s", e)
+        return None
+
+
+def get_master_volume():
+    """
+    Get system master volume and mute state.
+    Returns {"volume": 0.0-1.0, "muted": bool} or None if unavailable.
+    """
+    ep = _get_master_endpoint()
+    if ep is None:
+        return None
+    try:
+        return {
+            "volume": round(ep.GetMasterVolumeLevelScalar(), 3),
+            "muted": bool(ep.GetMute()),
+        }
+    except Exception as e:
+        logger.exception("get_master_volume failed: %s", e)
+        return None
+
+
+def set_master_volume(volume):
+    """
+    Set system master volume. volume in [0.0, 1.0].
+    Returns (success, message).
+    """
+    ep = _get_master_endpoint()
+    if ep is None:
+        return False, "Master volume not available"
+    try:
+        level = max(0.0, min(1.0, float(volume)))
+        ep.SetMasterVolumeLevelScalar(level, None)
+        return True, f"Master volume set to {int(level * 100)}%"
+    except Exception as e:
+        logger.exception("set_master_volume failed: %s", e)
+        return False, str(e)
+
+
+def master_volume_up(amount=None):
+    """
+    Increase system master volume by amount (default DEFAULT_VOLUME_STEP).
+    Returns (success, message).
+    """
+    if amount is None:
+        amount = DEFAULT_VOLUME_STEP
+    amount = max(0.0, min(1.0, float(amount)))
+    ep = _get_master_endpoint()
+    if ep is None:
+        return False, "Master volume not available"
+    try:
+        current = ep.GetMasterVolumeLevelScalar()
+        new_level = min(1.0, current + amount)
+        ep.SetMasterVolumeLevelScalar(new_level, None)
+        return True, f"Master volume up to {int(new_level * 100)}%"
+    except Exception as e:
+        logger.exception("master_volume_up failed: %s", e)
+        return False, str(e)
+
+
+def master_volume_down(amount=None):
+    """
+    Decrease system master volume by amount (default DEFAULT_VOLUME_STEP).
+    Returns (success, message).
+    """
+    if amount is None:
+        amount = DEFAULT_VOLUME_STEP
+    amount = max(0.0, min(1.0, float(amount)))
+    ep = _get_master_endpoint()
+    if ep is None:
+        return False, "Master volume not available"
+    try:
+        current = ep.GetMasterVolumeLevelScalar()
+        new_level = max(0.0, current - amount)
+        ep.SetMasterVolumeLevelScalar(new_level, None)
+        return True, f"Master volume down to {int(new_level * 100)}%"
+    except Exception as e:
+        logger.exception("master_volume_down failed: %s", e)
+        return False, str(e)
+
+
+def set_master_mute(muted):
+    """
+    Mute or unmute system master. muted: True = mute, False = unmute.
+    Returns (success, message).
+    """
+    ep = _get_master_endpoint()
+    if ep is None:
+        return False, "Master volume not available"
+    try:
+        ep.SetMute(1 if muted else 0, None)
+        return True, "Master muted" if muted else "Master unmuted"
+    except Exception as e:
+        logger.exception("set_master_mute failed: %s", e)
+        return False, str(e)
+
+
+def master_mute():
+    """Mute system master. Returns (success, message)."""
+    return set_master_mute(True)
+
+
+def master_unmute():
+    """Unmute system master. Returns (success, message)."""
+    return set_master_mute(False)
+
+
+def toggle_master_mute():
+    """
+    Toggle system master mute. Returns (success, message, new_muted_state).
+    new_muted_state is None if unavailable.
+    """
+    info = get_master_volume()
+    if info is None:
+        return False, "Master volume not available", None
+    new_muted = not info["muted"]
+    ok, msg = set_master_mute(new_muted)
+    return ok, msg, new_muted if ok else None
+
+
 def get_audio_sessions():
     """Return list of dicts: name, pid, volume, muted for each audio session."""
     if not _pycaw_available:
@@ -82,8 +211,21 @@ def _find_session(identifier):
     identifier: str (process name like "chrome.exe") or int (PID).
     Returns (session, volume_interface) or (None, None).
     """
-    if not _pycaw_available:
+    matches = _find_all_sessions(identifier)
+    if not matches:
         return None, None
+    return matches[0]
+
+
+def _find_all_sessions(identifier):
+    """
+    Find all sessions matching identifier.
+    - By name (str): returns all sessions for that process name (e.g. all firefox.exe).
+    - By PID (int): returns at most one session.
+    Returns list of (session, SimpleAudioVolume); empty if none found.
+    """
+    if not _pycaw_available:
+        return []
     _ensure_com_initialized()
     try:
         sessions = AudioUtilities.GetAllSessions()
@@ -94,43 +236,47 @@ def _find_session(identifier):
         else:
             want_name = str(identifier).strip().lower()
             if not want_name:
-                return None, None
+                return []
 
+        result = []
         for session in sessions:
             if want_pid is not None:
                 if getattr(session, "ProcessId", None) == want_pid:
-                    return session, session.SimpleAudioVolume
+                    result.append((session, session.SimpleAudioVolume))
+                    break  # PID is unique, one match
                 continue
             if session.Process is None:
                 if want_name == "system":
-                    return session, session.SimpleAudioVolume
+                    result.append((session, session.SimpleAudioVolume))
                 continue
             try:
                 name = session.Process.name().lower()
-                # Exact match, or match without .exe (e.g. "chrome" -> "chrome.exe")
                 if name == want_name or name == want_name + ".exe":
-                    return session, session.SimpleAudioVolume
+                    result.append((session, session.SimpleAudioVolume))
             except Exception:
                 pass
-        return None, None
+        return result
     except Exception as e:
-        logger.exception("_find_session failed: %s", e)
-        return None, None
+        logger.exception("_find_all_sessions failed: %s", e)
+        return []
 
 
 def set_volume(identifier, volume):
     """
-    Set volume for an app. volume in [0.0, 1.0].
+    Set volume for an app (or all processes when identified by name). volume in [0.0, 1.0].
     identifier: process name (e.g. "chrome.exe") or PID (int).
+    When using app name, applies to all windows/processes with that name.
     Returns (success, message).
     """
-    session, vol = _find_session(identifier)
-    if vol is None:
+    matches = _find_all_sessions(identifier)
+    if not matches:
         return False, f"App not found: {identifier}"
     try:
         level = max(0.0, min(1.0, float(volume)))
-        vol.SetMasterVolume(level, None)
-        return True, f"Volume set to {int(level * 100)}%"
+        for _session, vol in matches:
+            vol.SetMasterVolume(level, None)
+        count = len(matches)
+        return True, f"Volume set to {int(level * 100)}%" + (f" ({count} process(es))" if count > 1 else "")
     except Exception as e:
         logger.exception("set_volume failed: %s", e)
         return False, str(e)
@@ -157,45 +303,64 @@ def get_volume(identifier):
 def volume_up(identifier, amount=None):
     """
     Increase volume by amount (default DEFAULT_VOLUME_STEP).
-    amount in [0.0, 1.0].
+    When identified by app name, applies to all matching processes.
     Returns (success, message).
     """
     if amount is None:
         amount = DEFAULT_VOLUME_STEP
     amount = max(0.0, min(1.0, float(amount)))
-    info = get_volume(identifier)
-    if info is None:
+    matches = _find_all_sessions(identifier)
+    if not matches:
         return False, f"App not found: {identifier}"
-    new_vol = min(1.0, info["volume"] + amount)
-    return set_volume(identifier, new_vol)
+    try:
+        for _session, vol in matches:
+            current = vol.GetMasterVolume()
+            vol.SetMasterVolume(min(1.0, current + amount), None)
+        count = len(matches)
+        return True, f"Volume up" + (f" ({count} process(es))" if count > 1 else "")
+    except Exception as e:
+        logger.exception("volume_up failed: %s", e)
+        return False, str(e)
 
 
 def volume_down(identifier, amount=None):
     """
     Decrease volume by amount (default DEFAULT_VOLUME_STEP).
+    When identified by app name, applies to all matching processes.
     Returns (success, message).
     """
     if amount is None:
         amount = DEFAULT_VOLUME_STEP
     amount = max(0.0, min(1.0, float(amount)))
-    info = get_volume(identifier)
-    if info is None:
+    matches = _find_all_sessions(identifier)
+    if not matches:
         return False, f"App not found: {identifier}"
-    new_vol = max(0.0, info["volume"] - amount)
-    return set_volume(identifier, new_vol)
+    try:
+        for _session, vol in matches:
+            current = vol.GetMasterVolume()
+            vol.SetMasterVolume(max(0.0, current - amount), None)
+        count = len(matches)
+        return True, f"Volume down" + (f" ({count} process(es))" if count > 1 else "")
+    except Exception as e:
+        logger.exception("volume_down failed: %s", e)
+        return False, str(e)
 
 
 def set_mute(identifier, muted):
     """
-    Mute or unmute an app. muted: True = mute, False = unmute.
+    Mute or unmute an app (or all processes when identified by name).
+    muted: True = mute, False = unmute.
     Returns (success, message).
     """
-    session, vol = _find_session(identifier)
-    if vol is None:
+    matches = _find_all_sessions(identifier)
+    if not matches:
         return False, f"App not found: {identifier}"
     try:
-        vol.SetMute(1 if muted else 0, None)
-        return True, "Muted" if muted else "Unmuted"
+        for _session, vol in matches:
+            vol.SetMute(1 if muted else 0, None)
+        count = len(matches)
+        msg = "Muted" if muted else "Unmuted"
+        return True, msg + (f" ({count} process(es))" if count > 1 else "")
     except Exception as e:
         logger.exception("set_mute failed: %s", e)
         return False, str(e)
