@@ -1,7 +1,7 @@
 # Build KeyFree Companion .exe and attach to a GitHub Release.
 # Trigger: push a tag matching v* (e.g. v1.1.0, v1.2.0).
-# Run: gh release create v1.1.0 --notes-file CHANGELOG.md ./dist/KeyFreeCompanion.exe
-# Or push tag: git tag v1.1.0 && git push origin v1.1.0
+# Note: Re-run uses the workflow from the *tagged* commit. To pick up workflow
+# changes, push the workflow fix to main, then re-push the tag (see README).
 
 name: Build and Release
 

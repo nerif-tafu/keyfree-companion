@@ -41,6 +41,15 @@ git push origin v1.1.0
 
 Then open the repo’s **Releases** page to download `KeyFreeCompanion.exe`. The release body is filled from `CHANGELOG.md`.
 
+If the workflow build succeeds but the release step fails with **403** (e.g. “Resource not accessible by integration”), the run was using an older workflow without write permission. Push the workflow fix to `main`, then re-trigger from a commit that has it: delete the tag on the remote, recreate it on current `main`, and push again:
+
+```bash
+git push origin --delete v1.2.0
+git tag -d v1.2.0
+git tag -a v1.2.0 -m "Release 1.2.0"
+git push origin v1.2.0
+```
+
 ## API Endpoints
 
 ### Health Check
